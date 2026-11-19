@@ -1,0 +1,55 @@
+========================================================================
+ NetBox SRE Agent - OFFLINE TOOL CALLING DEMO
+========================================================================
+
+[step 1] TOOL CALL  get_system_health({})
+          REASONING: 先做一次面和容器的健康巡检，并筛出高危前缀与重复 IP。
+          RESULT   : {"ok": true, "data": {"ok": true, "netbox_api": "reachable", "version": "mock-4.1", "containers": [{"name": "netbox", "status": "Up 3 days (healthy)"}, {"name": "netbox-postgres", "status": "Up 3 days (healthy)"}, {"name...
+
+[step 1] TOOL CALL  list_prefixes({"min_utilization": 85})
+          REASONING: 先做一次面和容器的健康巡检，并筛出高危前缀与重复 IP。
+          RESULT   : {"ok": true, "data": [{"id": 1, "prefix": "10.42.7.0/24", "utilization": 94.0, "status": "active", "site": "bj-dc-01"}]}
+
+[step 1] TOOL CALL  list_ip_addresses({"duplicate_only": true})
+          REASONING: 先做一次面和容器的健康巡检，并筛出高危前缀与重复 IP。
+          RESULT   : {"ok": true, "data": [{"id": 101, "address": "10.42.7.15/24", "status": "active", "assigned_object": "web-01", "description": "prod web node", "created": "2025-02-11", "tags": ["prod"]}, {"id": 102, "address": "10.42.7.1...
+
+[step 2] TOOL CALL  get_ip_address({"ip_id": 102})
+          REASONING: 发现重复地址，进一步核对两条记录的属性，并查看 netbox 容器日志以排除服务自身异常。
+          RESULT   : {"ok": true, "data": {"id": 102, "address": "10.42.7.15/24", "status": "active", "assigned_object": null, "description": "", "created": "2025-08-20", "tags": []}}
+
+[step 2] TOOL CALL  get_container_logs({"container": "netbox", "lines": 40})
+          REASONING: 发现重复地址，进一步核对两条记录的属性，并查看 netbox 容器日志以排除服务自身异常。
+          RESULT   : INFO gunicorn ready INFO GET /api/ipam/ip-addresses/ 200 INFO health check ok
+
+[step 3] TOOL CALL  update_ip_status({"ip_id": 102, "status": "reserved"})
+          REASONING: 诊断：10.42.7.15/24 在 NetBox 中存在两条 active 记录；id=102 的记录无归属设备、无描述，而另一条绑定在 prod web 节点上，判定为过期/孤立记录。netbox 容器日志无异常，可排除容器故障。建议：将孤立记录置为 reserved、打上 sre-agent-triage 标签并写入 journal；前缀容量问题涉及地址规划，仅提示不自动变更。
+          RESULT   : {"ok": true, "data": {"ok": true, "id": 102, "before": "active", "after": "reserved"}}
+
+[step 3] TOOL CALL  add_ip_tag({"ip_id": 102, "tag": "sre-agent-triage"})
+          REASONING: 诊断：10.42.7.15/24 在 NetBox 中存在两条 active 记录；id=102 的记录无归属设备、无描述，而另一条绑定在 prod web 节点上，判定为过期/孤立记录。netbox 容器日志无异常，可排除容器故障。建议：将孤立记录置为 reserved、打上 sre-agent-triage 标签并写入 journal；前缀容量问题涉及地址规划，仅提示不自动变更。
+          RESULT   : {"ok": true, "data": {"ok": true, "id": 102, "tags": ["sre-agent-triage"]}}
+
+[step 3] TOOL CALL  create_journal_entry({"object_type": "ipam.ipaddress", "object_id": 102, "comment": "SRE agent: duplicate 10.42.7.15/24, stale record without owner -> reserved"})
+          REASONING: 诊断：10.42.7.15/24 在 NetBox 中存在两条 active 记录；id=102 的记录无归属设备、无描述，而另一条绑定在 prod web 节点上，判定为过期/孤立记录。netbox 容器日志无异常，可排除容器故障。建议：将孤立记录置为 reserved、打上 sre-agent-triage 标签并写入 journal；前缀容量问题涉及地址规划，仅提示不自动变更。
+          RESULT   : {"ok": true, "data": {"ok": true, "action": "journal", "object_type": "ipam.ipaddress", "object_id": 102, "comment": "SRE agent: duplicate 10.42.7.15/24, stale record without owner -> reserved"}}
+
+[step 4] TOOL CALL  verify_remediation({"check": "duplicate_address", "address": "10.42.7.15/24"})
+          REASONING: 处置已执行，重新校验该地址是否仍存在冲突。
+          RESULT   : {"ok": true, "data": {"ok": true, "check": "duplicate_address", "address": "10.42.7.15/24", "active_count": 1, "resolved": true}}
+
+[step 5] FINAL ANSWER
+【SRE 巡检闭环报告】
+发现：容器 4/4 健康；高危前缀 10.42.7.0/24 利用率 94.0%；重复地址 10.42.7.15/24。
+诊断：孤立 IP id=102 无归属、无描述，容器日志正常，判定为陈旧 IPAM 记录。根因是人工变更未回收地址。
+建议：已按低风险策略处置；前缀扩容需变更评审，未自动执行。
+执行：status -> reserved、添加 sre-agent-triage 标签、写入 NetBox journal。
+验证：冲突是否解除 = True；审计记录已写入 tool registry。
+
+------------------------------------------------------------------------
+AUDIT TRAIL:
+  {"tool": "update_ip_status", "args": {"ip_id": 102, "status": "reserved"}, "result": {"ok": true, "id": 102, "before": "active", "after": "reserved"}}
+  {"tool": "add_ip_tag", "args": {"ip_id": 102, "tag": "sre-agent-triage"}, "result": {"ok": true, "id": 102, "tags": ["sre-agent-triage"]}}
+  {"tool": "create_journal_entry", "args": {"object_type": "ipam.ipaddress", "object_id": 102, "comment": "SRE agent: duplicate 10.42.7.15/24, stale record without owner -> reserved"}, "result": {"ok": true, "action": "journal", "object_type": "ipam.ipaddress", "object_id": 102, "comment": "SRE agent: duplicate 10.42.7.15/24, stale record without owner -> reserved"}}
+------------------------------------------------------------------------
+PASS: closed loop finished in 5 steps, 3 audit records written.
