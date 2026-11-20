@@ -1,0 +1,18 @@
+{
+  "id": "prefix_exhaustion",
+  "name": "地址段容量告警处置",
+  "match_signals": ["utilization", "利用率", "容量告警", "地址耗尽"],
+  "diagnosis": [
+    "确认前缀利用率 >= 85% 且呈增长趋势",
+    "检查是否存在可回收的 reserved / deprecated 地址"
+  ],
+  "safe_actions": [
+    "输出容量风险评估与回收建议"
+  ],
+  "high_risk_advice_only": [
+    "新增/扩容地址段属于地址规划变更，必须人工评审，Agent 只给建议不执行"
+  ],
+  "verify": "无自动写操作，无需验证",
+  "example_status": null,
+  "example_tag": null
+}

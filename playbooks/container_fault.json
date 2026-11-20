@@ -1,0 +1,18 @@
+{
+  "id": "container_fault",
+  "name": "容器故障处置",
+  "match_signals": ["unhealthy", "容器日志", "ERROR", "restart_container"],
+  "diagnosis": [
+    "读取目标容器日志尾部，定位报错",
+    "区分应用层异常与容器运行时异常"
+  ],
+  "safe_actions": [
+    "输出日志证据与根因判断"
+  ],
+  "high_risk_advice_only": [
+    "重启生产容器可能影响业务，默认只建议；仅在明确授权且日志有证据时才可执行"
+  ],
+  "verify": "重启后重新检查容器状态",
+  "example_status": null,
+  "example_tag": null
+}

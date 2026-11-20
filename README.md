@@ -146,6 +146,8 @@ python run_live.py
 | `update_ip_status` | **写** | 修改 IP 状态（如 stale → reserved） |
 | `add_ip_tag` | **写** | 打标签便于追溯 |
 | `create_journal_entry` | **写** | 写 NetBox journal，形成审计链 |
+| `rollback_ip_status` | **写** | 依据审计日志的 before 值回滚状态 |
+| `get_playbook` | 读 | 按异常信号加载处置剧本（可选启用） |
 | `verify_remediation` | 读 | 写后复核，异常是否真的消失 |
 | `restart_container` | **写** | 重启容器（仅在日志有证据时；默认提示不自动执行） |
 
@@ -199,21 +201,42 @@ PASS: closed loop finished in 5 steps, 3 audit records written.
 
 ---
 
+## 7.1 增强能力
+
+### 回滚工具 `rollback_ip_status`
+
+依据审计日志中 `update_ip_status` 记录的 `before` 值恢复状态，回滚本身也写入审计（`action=rollback`），并把该工具纳入写白名单与 dry-run 护栏。`active → reserved → active` 的实测见 `tests/test_rollback.py`。
+
+### Playbook 目录化
+
+处置策略抽成 `playbooks/*.json`，三种剧本：`duplicate_ip` / `prefix_exhaustion` / `container_fault`。Agent 通过 `get_playbook(signal)` 按异常信号路由加载，返回诊断步骤、安全动作、高风险只建议动作与验证方式。策略在数据文件里，改剧本不用动代码。默认不注册该工具，传 `playbooks=PlaybookLibrary()` 才启用。
+
+### 告警驱动 `run_alert.py`
+
+把 Alertmanager webhook payload 转成 Agent 的 goal，只取 `status=firing` 的告警，并按 `alertname + ip/prefix/container` 做指纹去重（同一告警不重复触发巡检）。
+
+```bash
+python run_alert.py examples/alert_payload.json          # 离线
+USE_LIVE_LLM=1 python run_alert.py examples/alert_payload.json   # 真 LLM（需环境变量）
+```
+
+也可 `from run_alert import handle` 作为 webhook handler 接入 HTTP 服务；去重状态在模块级 `_adapter` 中跨调用保持。
+
+---
+
 ## 8. 局限与扩展方向
 
 **当前局限（坦诚说明）**
 
 - `run_demo.py` 用的 MockLLM 是基于工具输出做决策的**规则式模拟器**，不是语言模型；它只是零 Key 的管线演示。**真正的自然语言推理已用 glm-5 在 `run_live_mock.py` 跑通验证**（见 `examples/live_trace.txt`），对接真实 NetBox 则在 `run_live.py`。
-- 目前只做了一个场景（重复 IP + 容量告警）。
+- 告警驱动目前是 payload → goal 的适配器 + 去重，未内置 HTTP 服务器（提供了 `handle()` 供接入任意 web 框架）。
 - `restart_container` 已定义但演示中不触发，避免把「重启生产容器」做成默认动作。
 - NetBox API 不同版本字段略有差异，`list_prefixes` 在缺少 `utilization` 字段时会退化为估算。
 
 **可扩展**
 
-- 接入 Prometheus / Alertmanager，由告警事件触发 Agent。
 - 增加变更工单工具（创建 Jira / 飞书审批），形成「建议 → 审批 → 执行」两段式。
-- 回滚工具：根据审计日志把 status 恢复到 before 值。
-- 把 runbook 做成可插拔的 playbook 目录，按异常类型路由。
+- 为 `get_playbook` 增加向量检索，支持更模糊的异常描述匹配。
 
 ---
 
@@ -223,18 +246,25 @@ PASS: closed loop finished in 5 steps, 3 audit records written.
 netbox-sre-agent/
 ├── app/
 │   ├── agent.py       # Tool Calling 主循环
-│   ├── backends.py    # MockBackend / NetBoxBackend
+│   ├── alerting.py    # 告警 payload 解析 + 去重 + goal 转换
+│   ├── backends.py    # MockBackend / NetBoxBackend（含 rollback）
 │   ├── llm.py         # OpenAI 兼容客户端 + MockLLM
+│   ├── playbook.py    # Playbook 加载与信号路由
 │   ├── prompt.py      # SRE 系统提示词
 │   └── tools.py       # 工具 schema、registry、guardrails
+├── playbooks/         # 可插拔处置剧本（duplicate_ip / prefix_exhaustion / container_fault）
 ├── examples/
 │   ├── demo_output.txt   # 离线 Mock 演示输出
-│   └── live_trace.txt    # 真 LLM (glm-5) 逐轮决策实录
+│   ├── live_trace.txt    # 真 LLM (glm-5) 逐轮决策实录
+│   └── alert_payload.json # Alertmanager webhook 样例
 ├── eval/agent_eval.py # 行为评估集
-├── tests/test_agent.py
+├── tests/
+│   ├── test_agent.py  test_rollback.py
+│   ├── test_playbook.py  test_alerting.py
 ├── run_demo.py        # 离线入口（MockLLM，零 Key）
 ├── run_live_mock.py   # 真 LLM + 内存后端（推荐，零依赖证明 Tool Calling）
 ├── run_live.py        # 真 LLM + 真实 NetBox（生产形态）
+├── run_alert.py       # 告警驱动入口（payload -> goal）
 ├── requirements.txt
 └── .env.example
 ```

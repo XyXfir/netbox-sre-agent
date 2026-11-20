@@ -110,6 +110,20 @@ class MockBackend:
         self.audit.append(entry)
         return {"ok": True, **entry}
 
+    def rollback_status(self, ip_id: int) -> Dict[str, Any]:
+        """Restore status to the `before` value of the last recorded change."""
+        record = next((r for r in reversed(self.audit)
+                       if r.get("action") == "update_ip_status" and r.get("target") == ip_id), None)
+        if not record:
+            return {"ok": False, "error": f"no status change recorded for IP {ip_id}"}
+        ip = self.get_ip_address(ip_id)
+        if not ip:
+            return {"ok": False, "error": f"IP id {ip_id} not found"}
+        before, current = ip["status"], record["before"]
+        ip["status"] = current
+        self.audit.append({"action": "rollback", "target": ip_id, "before": before, "after": current})
+        return {"ok": True, "id": ip_id, "restored_to": current, "from": before}
+
     def restart_container(self, container: str) -> Dict[str, Any]:
         self.audit.append({"action": "restart_container", "target": container})
         return {"ok": True, "container": container, "result": "restarted (mock)"}
@@ -258,6 +272,20 @@ class NetBoxBackend:
             return {"ok": True, "id": result.get("id")}
         except requests.HTTPError as exc:
             return {"ok": False, "error": f"journal entry failed: {exc}"}
+
+    def rollback_status(self, ip_id: int) -> Dict[str, Any]:
+        """Restore status to the `before` value of the last recorded change."""
+        record = next((r for r in reversed(self.audit)
+                       if r.get("action") == "update_ip_status" and r.get("target") == ip_id), None)
+        if not record:
+            return {"ok": False, "error": f"no status change recorded for IP {ip_id}"}
+        before = self.get_ip_address(ip_id)
+        current = record.get("before")
+        self._patch(f"/api/ipam/ip-addresses/{ip_id}/", {"status": current})
+        self.audit.append({"action": "rollback", "target": ip_id,
+                           "before": (before or {}).get("status"), "after": current})
+        return {"ok": True, "id": ip_id, "restored_to": current,
+                "from": (before or {}).get("status")}
 
     def restart_container(self, container: str) -> Dict[str, Any]:
         output = self._docker("restart", container)

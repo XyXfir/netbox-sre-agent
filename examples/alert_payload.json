@@ -1,0 +1,39 @@
+{
+  "receiver": "sre-agent-webhook",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "NetBoxDuplicateIP",
+        "severity": "warning",
+        "ip": "10.42.7.15/24",
+        "site": "bj-dc-01"
+      },
+      "annotations": {
+        "summary": "NetBox IPAM 中检测到重复 IP 记录",
+        "description": "同一地址存在两条 active 记录，疑似人工变更未回收"
+      },
+      "startsAt": "2026-11-20T10:00:00Z"
+    },
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "NetBoxPrefixUtilizationHigh",
+        "severity": "critical",
+        "prefix": "10.42.7.0/24"
+      },
+      "annotations": {
+        "summary": "地址段利用率超过 90%",
+        "description": "10.42.7.0/24 利用率 94%，接近耗尽"
+      },
+      "startsAt": "2026-11-20T10:05:00Z"
+    },
+    {
+      "status": "resolved",
+      "labels": {"alertname": "NetBoxDown", "severity": "critical"},
+      "annotations": {},
+      "endsAt": "2026-11-20T10:10:00Z"
+    }
+  ]
+}

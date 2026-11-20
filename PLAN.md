@@ -12,8 +12,10 @@
 | 离线演示 `run_demo.py` | 已完成，5 步闭环 |
 | 单测 `tests/test_agent.py` | 已完成，4 项通过 |
 | README | 已完成 |
-| GitHub 推送 | 未完成，网络返回 502 |
-| 真实 LLM 验证 | 未完成，缺 Key |
+| GitHub 推送 | 已完成，仓库 https://github.com/XyXfir/netbox-sre-agent（经 Git Data API 推送，git push 因网络不通） |
+| 真实 LLM 验证 | 已完成，glm-5 跑通，见 `examples/live_trace.txt` |
+| 单测 | 20 项全过（含回滚/剧本/告警） |
+| 行为评估集 | 4/4 场景、20/20 断言 |
 
 ## 待确认输入
 
@@ -36,11 +38,11 @@
 - `git remote add origin <url>` → `git push -u origin main`。
 - 验证链接可访问，把地址发给面试官。
 
-**步骤 4 — 可选增强**
-- 告警驱动：Alertmanager webhook 把告警事件转成 Agent 的 goal。（待做）
-- 回滚工具：依据审计日志的 before 值恢复变更。（待做）
-- Playbook 目录化：处置策略抽成可插拔文件，按异常类型路由。（待做）
-- 评估集：检验工具序列正确性、是否误触发写操作、是否漏掉验证，输出通过率。（**已完成**：`eval/agent_eval.py`，4/4 场景、20/20 断言通过）
+**步骤 4 — 可选增强（全部完成）**
+- 回滚工具：`rollback_ip_status` 依据审计日志 before 值恢复，回滚留痕并纳入护栏。（`tests/test_rollback.py` 4 项通过）
+- Playbook 目录化：`playbooks/*.json` 三种剧本，`get_playbook(signal)` 按信号路由。（`tests/test_playbook.py` 8 项通过）
+- 告警驱动：`run_alert.py` 把 Alertmanager payload 转 goal，取 firing + 指纹去重。（`tests/test_alerting.py` 4 项通过）
+- 评估集：`eval/agent_eval.py`，4/4 场景、20/20 断言通过。
 
 **步骤 5 — 收尾**
 - 清理中间产物，只保留最终文件。

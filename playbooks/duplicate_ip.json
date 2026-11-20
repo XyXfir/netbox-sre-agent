@@ -1,0 +1,21 @@
+{
+  "id": "duplicate_ip",
+  "name": "重复 IP 记录处置",
+  "match_signals": ["duplicate_only", "重复", "同一地址两条", "duplicate_address"],
+  "diagnosis": [
+    "对比冲突两条记录的 assigned_object / description / created",
+    "确认一条有归属设备、另一条无归属且创建较晚 → 后者为孤立记录",
+    "查 netbox 容器日志排除服务自身异常"
+  ],
+  "safe_actions": [
+    "将孤立记录 status 置为 reserved 或 deprecated",
+    "打标签便于追溯",
+    "写 journal 记录处置原因"
+  ],
+  "high_risk_advice_only": [
+    "删除记录本身需人工审批，Agent 不自动执行"
+  ],
+  "verify": "verify_remediation(check=duplicate_address)",
+  "example_status": "deprecated",
+  "example_tag": "duplicate-cleanup"
+}

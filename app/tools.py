@@ -12,7 +12,8 @@ from .backends import MockBackend, NetBoxBackend
 
 Backend = MockBackend | NetBoxBackend
 
-WRITE_TOOLS = {"update_ip_status", "add_ip_tag", "create_journal_entry", "restart_container"}
+WRITE_TOOLS = {"update_ip_status", "add_ip_tag", "create_journal_entry", "restart_container",
+               "rollback_ip_status"}
 
 
 def _fn(name: str, description: str, properties: Dict[str, Any], required: List[str] | None = None) -> Dict[str, Any]:
@@ -62,6 +63,9 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
          "object_id": {"type": "integer", "description": "Object id"},
          "comment": {"type": "string", "description": "What was found and what was done"}},
         ["object_type", "object_id", "comment"]),
+    _fn("rollback_ip_status",
+        "WRITE. Roll back an IP status to the value before the last recorded change (uses the audit trail).",
+        {"ip_id": {"type": "integer", "description": "NetBox IP address id to roll back"}}, ["ip_id"]),
     _fn("verify_remediation",
         "Re-run a check after a write action to confirm the incident is actually resolved.",
         {"check": {"type": "string", "description": "Check name, currently: duplicate_address"},
@@ -76,14 +80,23 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
 class ToolRegistry:
     """Executes a tool call; enforces dry-run, allowlist and an append-only audit log."""
 
-    def __init__(self, backend: Backend, dry_run: bool = False, allowed_write_tools: set[str] | None = None) -> None:
+    def __init__(self, backend: Backend, dry_run: bool = False, allowed_write_tools: set[str] | None = None,
+                 playbooks: Any | None = None) -> None:
         self.backend = backend
         self.dry_run = dry_run
         self.allowed_write_tools = set(WRITE_TOOLS) if allowed_write_tools is None else set(allowed_write_tools)
         self.audit: List[Dict[str, Any]] = []
+        self.playbooks = playbooks  # optional PlaybookLibrary; adds get_playbook tool
 
     def schemas(self) -> List[Dict[str, Any]]:
-        return TOOL_SCHEMAS
+        if self.playbooks is None:
+            return TOOL_SCHEMAS
+        return TOOL_SCHEMAS + [_fn(
+            "get_playbook",
+            "Load the disposal playbook matching an observed anomaly signal. Returns diagnosis steps, "
+            "safe actions, high-risk advice-only actions and verification method.",
+            {"signal": {"type": "string", "description": "Observed signal, e.g. 'duplicate_ip' or 'prefix utilization 94'"}},
+            ["signal"])]
 
     @staticmethod
     def _ok(data: Any) -> str:
@@ -130,7 +143,7 @@ class ToolRegistry:
                 return {"ok": False, "error": f"unsupported check: {check}"}
             return b.verify_duplicate(address)
 
-        return {
+        handlers = {
             "get_system_health": b.health,
             "list_prefixes": b.list_prefixes,
             "list_ip_addresses": b.list_ip_addresses,
@@ -140,6 +153,13 @@ class ToolRegistry:
             "update_ip_status": b.update_ip_status,
             "add_ip_tag": b.add_ip_tag,
             "create_journal_entry": b.create_journal_entry,
+            "rollback_ip_status": b.rollback_status,
             "verify_remediation": verify,
             "restart_container": b.restart_container,
         }
+        if self.playbooks is not None:
+            lib = self.playbooks
+            handlers["get_playbook"] = lambda signal: (
+                lib.route(signal) or {"ok": False, "error": "no playbook matched", "available": lib.summary()}
+            )
+        return handlers
