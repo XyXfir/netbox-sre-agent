@@ -93,6 +93,14 @@ python run_demo.py
 python -m unittest discover -s tests -v
 ```
 
+行为评估集（数据驱动的 4 个场景：完整闭环 / dry-run 拦截 / 白名单收紧 / 干净环境不误写）：
+
+```bash
+python eval/agent_eval.py
+```
+
+当前结果：**4/4 场景通过，20/20 断言通过（100%）**。它验证的不只是"跑通"，而是工具序列正确性、无异常时不误触发写操作、以及护栏是否真的拦住了写操作。
+
 ### B. 真实模式（真实 function calling）
 
 ```bash
@@ -189,7 +197,6 @@ PASS: closed loop finished in 5 steps, 3 audit records written.
 - 增加变更工单工具（创建 Jira / 飞书审批），形成「建议 → 审批 → 执行」两段式。
 - 回滚工具：根据审计日志把 status 恢复到 before 值。
 - 把 runbook 做成可插拔的 playbook 目录，按异常类型路由。
-- 增加评估集：给定异常场景，检验工具序列是否正确、是否误触发写操作。
 
 ---
 
@@ -204,6 +211,7 @@ netbox-sre-agent/
 │   ├── prompt.py      # SRE 系统提示词
 │   └── tools.py       # 工具 schema、registry、guardrails
 ├── examples/demo_output.txt
+├── eval/agent_eval.py # 行为评估集
 ├── tests/test_agent.py
 ├── run_demo.py        # 离线入口
 ├── run_live.py        # 真实入口

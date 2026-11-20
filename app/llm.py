@@ -136,13 +136,22 @@ class MockLLM:
                 _tc("c9", "verify_remediation", {"check": "duplicate_address", "address": address}),
             ], "处置已执行，重新校验该地址是否仍存在冲突。")
 
-        # 5) Final answer
+        # 5) Final answer - 无异常时给出干净的"无需处置"结论
         health = out.get("get_system_health", {}).get("data", {})
         verify = (out.get("verify_remediation", {}).get("data") or {})
         containers = health.get("containers", [])
         healthy = sum(1 for c in containers if "healthy" in str(c.get("status", "")))
         prefix_txt = (f"{hot['prefix']} 利用率 {hot['utilization']}%" if hot else "未发现高危前缀")
         resolved = verify.get("resolved")
+        if not rogue:
+            return _assistant([], (
+                "【SRE 巡检报告】\n"
+                f"发现：容器 {healthy}/{len(containers)} 健康；高危前缀：{prefix_txt}；未发现重复 IP。\n"
+                "诊断：当前 IPAM 数据无冲突，无需处置。\n"
+                "建议：保持现状；若后续出现容量告警再走变更评审。\n"
+                "执行：无写操作。\n"
+                "验证：不适用。"
+            ))
         return _assistant([], (
             "【SRE 巡检闭环报告】\n"
             f"发现：容器 {healthy}/{len(containers)} 健康；高危前缀 {prefix_txt}；"
