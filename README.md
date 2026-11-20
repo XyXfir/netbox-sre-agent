@@ -70,6 +70,8 @@
 
 ## 4. 快速开始
 
+> **想直接看真 Tool Calling 证据？** 跳到 [4.B](#b-真实模式真-llm-function-calling--推荐零依赖)：配一个 OpenAI 兼容 Key，`python run_live_mock.py` 逐轮打印模型思考、工具决策与结果，完整实录已在 `examples/live_trace.txt`。零 Key 则先跑下面的 4.A。
+
 ### 环境
 
 - Python 3.9+（开发环境 3.13）
@@ -101,7 +103,22 @@ python eval/agent_eval.py
 
 当前结果：**4/4 场景通过，20/20 断言通过（100%）**。它验证的不只是"跑通"，而是工具序列正确性、无异常时不误触发写操作、以及护栏是否真的拦住了写操作。
 
-### B. 真实模式（真实 function calling）
+### B. 真实模式（真 LLM function calling）—— 推荐，零依赖
+
+这一步是**笔试核心证据**：决策由真实语言模型做出，而非脚本规则。用内存后端即可证明，无需 NetBox / Docker / Token：
+
+```bash
+export LLM_BASE_URL=https://coding.dashscope.aliyuncs.com/v1
+export LLM_API_KEY=<your-key>
+export LLM_MODEL=glm-5
+python run_live_mock.py
+```
+
+脚本以 verbose 模式运行，**逐轮打印模型的思考、它决定的工具调用、以及每次工具返回**，决策链完全可见。完整实录见 `examples/live_trace.txt`（真实 glm-5 运行结果：6 步收敛、9 次工具调用、3 条审计、`resolved: true`）。
+
+关键证据：模型自主选择了 `status=deprecated`、标签 `duplicate-cleanup`，并主动对两条 IP 逐一诊断——这些参数值在离线 MockLLM 里是写死的 `reserved` / `sre-agent-triage`，证明 live 模式的行为来自模型推理而非预设脚本。
+
+### C. 真实模式 + 真实 NetBox（对接生产形态）
 
 ```bash
 cp .env.example .env
@@ -186,7 +203,7 @@ PASS: closed loop finished in 5 steps, 3 audit records written.
 
 **当前局限（坦诚说明）**
 
-- MockLLM 是基于工具输出做决策的**规则式模拟器**，不是语言模型；它用于证明 Tool Calling 管线和闭环可执行，真正的自然语言推理在 `run_live.py`。
+- `run_demo.py` 用的 MockLLM 是基于工具输出做决策的**规则式模拟器**，不是语言模型；它只是零 Key 的管线演示。**真正的自然语言推理已用 glm-5 在 `run_live_mock.py` 跑通验证**（见 `examples/live_trace.txt`），对接真实 NetBox 则在 `run_live.py`。
 - 目前只做了一个场景（重复 IP + 容量告警）。
 - `restart_container` 已定义但演示中不触发，避免把「重启生产容器」做成默认动作。
 - NetBox API 不同版本字段略有差异，`list_prefixes` 在缺少 `utilization` 字段时会退化为估算。
@@ -210,11 +227,14 @@ netbox-sre-agent/
 │   ├── llm.py         # OpenAI 兼容客户端 + MockLLM
 │   ├── prompt.py      # SRE 系统提示词
 │   └── tools.py       # 工具 schema、registry、guardrails
-├── examples/demo_output.txt
+├── examples/
+│   ├── demo_output.txt   # 离线 Mock 演示输出
+│   └── live_trace.txt    # 真 LLM (glm-5) 逐轮决策实录
 ├── eval/agent_eval.py # 行为评估集
 ├── tests/test_agent.py
-├── run_demo.py        # 离线入口
-├── run_live.py        # 真实入口
+├── run_demo.py        # 离线入口（MockLLM，零 Key）
+├── run_live_mock.py   # 真 LLM + 内存后端（推荐，零依赖证明 Tool Calling）
+├── run_live.py        # 真 LLM + 真实 NetBox（生产形态）
 ├── requirements.txt
 └── .env.example
 ```

@@ -17,10 +17,17 @@ LLM = MockLLM | OpenAICompatLLM
 
 
 class SREAgent:
-    def __init__(self, llm: LLM, registry: ToolRegistry, max_steps: int = 12) -> None:
+    def __init__(self, llm: LLM, registry: ToolRegistry, max_steps: int = 12,
+                 verbose: bool = False) -> None:
         self.llm = llm
         self.registry = registry
         self.max_steps = max_steps
+        self.verbose = verbose
+
+    def _say(self, line: str) -> None:
+        """Print one trace line when verbose mode is on."""
+        if self.verbose:
+            print(line, flush=True)
 
     def run(self, goal: str) -> Dict[str, Any]:
         messages: List[Dict[str, Any]] = [
@@ -30,14 +37,27 @@ class SREAgent:
         trace: List[Dict[str, Any]] = []
 
         for step in range(1, self.max_steps + 1):
+            self._say(f"\n{'='*64}")
+            self._say(f"  STEP {step}  |  messages in context: {len(messages)}")
+            self._say(f"{'='*64}")
             message = self.llm.chat(messages, tools=self.registry.schemas())
             messages.append(message)
             calls = message.get("tool_calls") or []
 
+            thought = (message.get("content") or "").strip()
+            if thought:
+                self._say(f"  [MODEL THINKING] {thought}")
+
             if not calls:
+                self._say(f"  [FINAL ANSWER] no tool_calls -> done at step {step}")
                 trace.append({"step": step, "type": "final", "content": message.get("content", "")})
                 return {"ok": True, "steps": step, "trace": trace,
                         "answer": message.get("content", ""), "audit": self.registry.audit}
+
+            self._say(f"  [DECISION] model requested {len(calls)} tool call(s):")
+            for i, call in enumerate(calls, 1):
+                fn = call.get("function", {})
+                self._say(f"      {i}. {fn.get('name')}({fn.get('arguments')})")
 
             for call in calls:
                 func = call.get("function", {})
@@ -54,6 +74,7 @@ class SREAgent:
                 trace.append({"step": step, "type": "tool", "name": name,
                               "args": args, "result": result})
 
+                self._say(f"  [TOOL RESULT] {name} -> {result[:420]}")
                 if message.get("content"):
                     trace[-1]["reasoning"] = message["content"]
 
